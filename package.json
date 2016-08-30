@@ -1,0 +1,38 @@
+{
+  "name": "exchannel",
+  "version": "1.0.1",
+  "description": "Add sending of events requests with a response to any data channel implementing send and .on('message')",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha test",
+    "mocha": "mocha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/virtkick/node-exchannel.git"
+  },
+  "keywords": [
+    "data",
+    "stream",
+    "event",
+    "message",
+    "request",
+    "response"
+  ],
+  "author": "Damian Kaczmarek <rush@virtkick.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/virtkick/node-exchannel/issues"
+  },
+  "homepage": "https://github.com/virtkick/node-exchannel#readme",
+  "dependencies": {
+    "bluebird": "^3.4.3",
+    "node-uuid": "^1.4.7",
+    "promise-resolve-deep": "^1.0.3"
+  },
+  "devDependencies": {
+    "chai": "^3.5.0",
+    "mocha": "^3.0.2",
+    "should": "^11.1.0"
+  }
+}

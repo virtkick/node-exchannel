@@ -1,10 +1,7 @@
-import Bluebird from 'bluebird';
-import uuid from 'node-uuid';
-import {EventEmitter} from 'events';
-import setupResolveDeep from 'promise-resolve-deep';
-
-let Promise = Bluebird.getNewLibraryCopy();
-setupResolveDeep(Promise);
+let Promise = require('bluebird').getNewLibraryCopy();
+let uuid = require('node-uuid');
+let EventEmitter = require('events').EventEmitter;
+require('promise-resolve-deep')(Promise);
 
 class RemoteError extends Error {
   constructor(message, extra) {

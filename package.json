@@ -1,11 +1,13 @@
 {
   "name": "exchannel",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Add sending of events requests with a response to any data channel implementing send and .on('message')",
-  "main": "index.js",
+  "main": "dist.js",
   "scripts": {
     "test": "mocha test",
-    "mocha": "mocha"
+    "mocha": "mocha",
+    "build": "babel index.js -o dist.js",
+    "prepublish": "npm run build"
   },
   "repository": {
     "type": "git",
@@ -31,11 +33,14 @@
     "promise-resolve-deep": "^1.0.3"
   },
   "devDependencies": {
+    "babel-cli": "^6.14.0",
+    "babel-preset-es2015-node6": "^0.3.0",
     "chai": "^3.5.0",
     "mocha": "^3.0.2",
     "should": "^11.1.0"
   },
   "jspm": {
-    "format": "es6"
+    "format": "esm",
+    "main": "index.js"
   }
 }

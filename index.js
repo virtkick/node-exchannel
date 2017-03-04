@@ -119,18 +119,17 @@ export class ExChannel extends EventEmitter {
             name: error.name
           };
         }
-        try {
-          this.send({
-            error: error,
-            type: obj.type,
-            response: obj.uuid,
-            data: responseData
-          });
-        } catch(err) {
+        return this.send({
+          error: error,
+          type: obj.type,
+          response: obj.uuid,
+          data: responseData
+        }).catch(err => {
+          this.emit('messageError', err, msg);
           if(err.message !== 'not opened') {
             throw err;
           }
-        }
+        });
       };
       
       try {
@@ -268,10 +267,7 @@ export class ExChannel extends EventEmitter {
           uuid: uuidV4()
         };
 
-        this.send(obj, error => {
-          if(error) return reject(error);
-           // sent successfuly, wait for response
-
+        this.send(obj).then(() => {
           requestMap[obj.uuid] = data => {
             delete requestMap[obj.uuid];
             resolve(data);
@@ -280,7 +276,7 @@ export class ExChannel extends EventEmitter {
             delete requestMap[obj.uuid];
             this.constructRealError(originalStack, error).then(reject);
           };
-        });
+        }).catch(reject);
       })).timeout(responseTimeout).catch(Promise.TimeoutError, err => {
         delete requestMap[obj.uuid];
         if(this.isClosed()) {

@@ -1,6 +1,6 @@
 {
   "name": "exchannel",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Add sending of events requests with a response to any data channel implementing send and .on('message')",
   "main": "index-node6.js",
   "scripts": {

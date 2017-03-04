@@ -1,9 +1,14 @@
 let Promise = require('bluebird').getNewLibraryCopy();
-let uuid = require('node-uuid');
+let uuidV4 = function(){
+  var a,b;
+  for(b=a='';a++<36;b+=a*51&52?(a^15?8^Math.random()*(a^20?16:4):4).toString(16):'-');
+  return b;
+}
+
 let EventEmitter = require('events').EventEmitter;
 require('promise-resolve-deep')(Promise);
 
-class RemoteError extends Error {
+export class RemoteError extends Error {
   constructor(message, extra) {
     super(message, extra);
     Error.captureStackTrace(this, this.constructor.name);
@@ -50,15 +55,15 @@ class ScopedChannel {
   }
 });
 
-class ExChannel extends EventEmitter {
+export class ExChannel extends EventEmitter {
   constructRealError(originalStack, err) {
     let resolvedError;
-    if(! (err instanceof Error) && err.message && err.stack) {
+    if(err.message && err.stack) {
       let errInstance = new RemoteError(err.message);
       errInstance.name = 'Remote::' + err.name;
       let constructedStack = err.stack + '\n' + 'From previous event:\n' + originalStack;
       errInstance.stack = constructedStack;
-      if(process.env.EWS_PRINT_REMOTE_REJECTIONS) {
+      if(process && process.env.EWS_PRINT_REMOTE_REJECTIONS) {
         console.error(errInstance.stack);
       }
       resolvedError = errInstance;
@@ -104,8 +109,7 @@ class ExChannel extends EventEmitter {
     let requestMap = this.requestMap  = {};
     
     let messageHandler = this.messageHandler = msg => {
-      let obj = JSON.parse(msg);
-      
+      const obj = msg;
       let responseFunction = (error, responseData) => {
         if(error && error instanceof Error) {
           error = {
@@ -205,11 +209,14 @@ class ExChannel extends EventEmitter {
   }
   
   send(obj, cb) {
-    if(this.messageProvider.send) {
-      this.messageProvider.send(JSON.stringify(obj), cb);
-    } else {
-      cb(new Error('send is not implemented'));
-    }
+    return new Promise((resolve, reject) => {
+      if(this.messageProvider.send) {
+        return this.messageProvider.send(obj, err => {
+          err ? reject(err) : resolve();
+        });
+      }
+      throw new Error('send is not implemented');
+    }).nodeify(cb);
   }
   
   close() {
@@ -237,7 +244,7 @@ class ExChannel extends EventEmitter {
       type: type,
       data: data
     };
-    this.send(obj, cb);
+    return this.send(obj).nodeify(cb);
   }
   
   sendRequest(type, data, opts, cb) {
@@ -256,7 +263,7 @@ class ExChannel extends EventEmitter {
         obj = {
           type: type,
           data: data,
-          uuid: uuid.v4()
+          uuid: uuidV4()
         };
 
         this.send(obj, error => {
@@ -279,13 +286,10 @@ class ExChannel extends EventEmitter {
           return new Promise((resolve, reject) => {});
         }
         throw err;
-      })
-      .nodeify(cb);
-    });
+      });
+    }).nodeify(cb);
   }
 };
 
-ExChannel.RemoteError = RemoteError;
-ExChannel.Timeout = Promise.Timeout;
-
-module.exports = ExChannel;
+export default ExChannel;
+export const Timeout = Promise.Timeout;

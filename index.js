@@ -103,13 +103,14 @@ export class ExChannel extends EventEmitter {
   
   
 
-  constructor(messageProvider) {
+  constructor(messageProvider, {sendRawObjects = false} = {}) {
     super();
+    this.options = { sendRawObjects };
     this.scopes = {};
     let requestMap = this.requestMap  = {};
     
     let messageHandler = this.messageHandler = msg => {
-      const obj = msg;
+      const obj = this.options.sendRawObjects ?  msg : JSON.parse(msg);
       let responseFunction = (error, responseData) => {
         if(error && error instanceof Error) {
           error = {
@@ -211,7 +212,8 @@ export class ExChannel extends EventEmitter {
   send(obj, cb) {
     return new Promise((resolve, reject) => {
       if(this.messageProvider.send) {
-        return this.messageProvider.send(obj, err => {
+        const payload = this.options.sendRawObjects ?  obj : JSON.stringify(obj);
+        return this.messageProvider.send(payload, err => {
           err ? reject(err) : resolve();
         });
       }

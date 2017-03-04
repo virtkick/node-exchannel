@@ -63,7 +63,7 @@ export class ExChannel extends EventEmitter {
       errInstance.name = 'Remote::' + err.name;
       let constructedStack = err.stack + '\n' + 'From previous event:\n' + originalStack;
       errInstance.stack = constructedStack;
-      if(process && process.env.EWS_PRINT_REMOTE_REJECTIONS) {
+      if(this.options.printRemoteRejections) {
         console.error(errInstance.stack);
       }
       resolvedError = errInstance;
@@ -103,9 +103,9 @@ export class ExChannel extends EventEmitter {
   
   
 
-  constructor(messageProvider, {sendRawObjects = false} = {}) {
+  constructor(messageProvider, {sendRawObjects = false, printRemoteRejections = process.env.EWS_PRINT_REMOTE_REJECTIONS} = {}) {
     super();
-    this.options = { sendRawObjects };
+    this.options = { sendRawObjects, printRemoteRejections };
     this.scopes = {};
     let requestMap = this.requestMap  = {};
     

@@ -257,7 +257,7 @@ export class ExChannel extends EventEmitter {
     }
     let requestMap = this.requestMap;
     let responseTimeout = opts.responseTimeout || this.responseTimeout || 10000;
-    let originalStack = (new Error().stack).replace(/^Error\n/,'');
+    let originalStack = (new Error().stack || '').replace(/^Error\n/,'');
 
     return Promise.resolveDeep(data).then(data => {
       return (new Promise((resolve, reject) => {

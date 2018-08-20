@@ -1,4 +1,3 @@
-let Promise = require('bluebird').getNewLibraryCopy();
 let uuidV4 = function(){
   var a,b;
   for(b=a='';a++<36;b+=a*51&52?(a^15?8^Math.random()*(a^20?16:4):4).toString(16):'-');
@@ -18,15 +17,27 @@ export class RemoteError extends Error {
   }
 }
 
-function newCall(Cls, args) {
-  args.unshift(null);
-  return new (Function.prototype.bind.apply(Cls, args));
-}
+export class TimeoutError extends Error {
+  constructor(message) {
+    super(message);
+    Error.captureStackTrace(this, this.constructor.name);
+    this.name = this.constructor.name;
+    this.message = message;
+  }
+};
 
 function makeRequestHandler(cb) {
   return function requestHandler(data, responseCb) {
     Promise.resolve().then(() => Promise.resolveDeep(cb(data)))
-      .nodeify(responseCb);
+      // removing nodeify created a problem with responseCb possibly throwing
+      // and then calling responseCb again
+      .then(data => {
+        try {
+          responseCb(null, data)
+        } catch(err) {
+          console.error('Error inside requestHandler:', err);
+        };
+      }).catch(responseCb);
   };
 }
 
@@ -75,24 +86,24 @@ export class ExChannel extends EventEmitter {
     }
     return Promise.resolve(resolvedError);
   }
-  
+
   isClosed() {
     if(typeof this.messageProvider.isClosed === 'function') {
       return this.messageProvider.isClosed();
     }
-    
+
     return false; // needs to re-implemented by children
   }
-  
+
   setRemoteErrorHook(hook) {
     this.remoteErrorHook = hook;
   }
-  
+
   scope(scopeId) {
     this.scopes[scopeId] = this.scopes[scopeId] || new ScopedChannel(this, scopeId);
     return this.scopes[scopeId];
   }
-  
+
   destroyScope(scopeId) {
     let scope = this.scopes[scopeId];
     if(scope) {
@@ -100,15 +111,13 @@ export class ExChannel extends EventEmitter {
     }
     delete this.scopes[scopeId];
   }
-  
-  
 
   constructor(messageProvider, {sendRawObjects = false, printRemoteRejections = process.env.EWS_PRINT_REMOTE_REJECTIONS} = {}) {
     super();
     this.options = { sendRawObjects, printRemoteRejections };
     this.scopes = {};
     let requestMap = this.requestMap  = {};
-    
+
     let messageHandler = this.messageHandler = msg => {
       const obj = this.options.sendRawObjects ?  msg : JSON.parse(msg);
       let responseFunction = (error, responseData) => {
@@ -131,7 +140,7 @@ export class ExChannel extends EventEmitter {
           }
         });
       };
-      
+
       try {
         try {
           this.emit('message', obj);
@@ -169,7 +178,7 @@ export class ExChannel extends EventEmitter {
         this.emit('messageError', err, msg);
       }
     };
-    
+
     this.messageProvider = messageProvider;
     if(messageProvider.on) {
       messageProvider.on('message', messageHandler);
@@ -177,38 +186,38 @@ export class ExChannel extends EventEmitter {
       messageProvider.onMessage = messageHandler;
     }
   }
-  
+
   onRequest(name, cb) {
     this.on('request:'+name, makeRequestHandler(cb));
   }
-  
+
   onceRequest(name, cb) {
     this.once('request:'+name, makeRequestHandler(cb));
   }
-  
+
   onEvent(name, cb) {
     this.on('event:'+name, cb);
   }
-  
+
   onceEvent(name, cb) {
     this.once('event:'+name, cb);
   }
-  
+
   offEvent(name, cb) {
     if(cb)
       this.removeListener('event:' + name, cb);
     else
       this.removeAllListeners('event:' + name);
   }
-  
+
   offRequest(name, cb) {
     if(cb)
       this.removeListener('request:' + name, cb);
     else
       this.removeAllListeners('request:' + name);
   }
-  
-  send(obj, cb) {
+
+  send(obj) {
     return new Promise((resolve, reject) => {
       if(this.messageProvider.send) {
         const payload = this.options.sendRawObjects ?  obj : JSON.stringify(obj);
@@ -217,9 +226,9 @@ export class ExChannel extends EventEmitter {
         });
       }
       throw new Error('send is not implemented');
-    }).nodeify(cb);
+    });
   }
-  
+
   close() {
     if(this.messageProvider.close) {
       this.messageProvider.close();
@@ -227,12 +236,12 @@ export class ExChannel extends EventEmitter {
       throw new Error('close is not implemented');
     }
   }
-  
+
   setResponseTimeout(timeout) {
     this.responseTimeout = parseInt(timeout);
   }
-  
-  sendEvent(type, data, cb) {
+
+  sendEvent(type, data) {
     if(data && data instanceof Error) {
       data = {
         message: data.message,
@@ -240,15 +249,15 @@ export class ExChannel extends EventEmitter {
         name: data.name
       };
     }
-    
+
     let obj = {
       type: type,
       data: data
     };
-    return this.send(obj).nodeify(cb);
+    return this.send(obj);
   }
-  
-  sendRequest(type, data, opts, cb) {
+
+  sendRequest(type, data, opts) {
     let obj;
     opts = opts || {};
     if(typeof opts === 'function') {
@@ -267,27 +276,35 @@ export class ExChannel extends EventEmitter {
           uuid: uuidV4()
         };
 
+        const timer = setTimeout(() => {
+          reject(new TimeoutError('operation timed out'));
+        }, responseTimeout);
+
         this.send(obj).then(() => {
           requestMap[obj.uuid] = data => {
+            clearTimeout(timer);
             delete requestMap[obj.uuid];
             resolve(data);
           };
           requestMap[obj.uuid].error = error => {
+            clearTimeout(timer);
             delete requestMap[obj.uuid];
             this.constructRealError(originalStack, error).then(reject);
           };
-        }).catch(reject);
-      })).timeout(responseTimeout).catch(Promise.TimeoutError, err => {
+        });
+      })).catch(err => {
+        if (!(err instanceof TimeoutError)) {
+          throw err;
+        }
         delete requestMap[obj.uuid];
         if(this.isClosed()) {
           // never resolve, this shouldn't leak as bluebird has no global state
-          return new Promise((resolve, reject) => {});
+          return new Promise(() => {});
         }
         throw err;
       });
-    }).nodeify(cb);
+    });
   }
 };
 
 export default ExChannel;
-export const Timeout = Promise.Timeout;

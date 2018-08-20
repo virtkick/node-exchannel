@@ -1,8 +1,9 @@
-let { ExChannel, RemoteError }  = require('./')
+let { ExChannel, RemoteError, TimeoutError }  = require('./')
 let { EventEmitter } = require('events');
 let Promise = require('bluebird');
 require('should');
 let assert = require('assert');
+const { expect } = require('chai');
 
 class FakeWS extends EventEmitter {
   constructor() {
@@ -117,7 +118,7 @@ describe('ExChannel - client/server', function() {
   });
 
   it('should send JSON requests through basic API', endTest => {
-    ws.sendRequest('test1', {code: 42}, function(err, res) {
+    ws.sendRequest('test1', {code: 42}).then(res => {
       res.should.equal('foo');
 
       ws.sendRequest('test2', {code: 43}).then(function(res) {
@@ -138,10 +139,10 @@ describe('ExChannel - client/server', function() {
 
   it('should send JSON requests through promise request handlers',
     endTest => {
-    ws.sendRequest('test1', {code: 42}, function(err, res) {
+    ws.sendRequest('test1', {code: 42}).then(res => {
       res.should.equal('foo');
 
-      ws.sendRequest('test2', {code: 43}).then(function(res) {
+      ws.sendRequest('test2', {code: 43}).then(res => {
         res.should.equal('foo2');
         endTest();
       });
@@ -160,105 +161,112 @@ describe('ExChannel - client/server', function() {
   });
 
   it('should send JSON requests through promise request handlers with nested promises',
-    endTest => {
-    ws.sendRequest('test1', {code: Promise.resolve(42)}, function(err, res) {
-      assert.deepEqual(res, {
-        foo: ['bar', 'foo']
-      })
-      endTest();
-    });
-
+    () => {
     wsServer.onRequest('test1', function(data) {
       assert.deepEqual(data, {code: 42});
-      
       return Promise.resolve({
         foo: [Promise.resolve('bar'), 'foo']
       });
     });
+
+    return ws.sendRequest('test1', {code: Promise.resolve(42)}).then(res => {
+      assert.deepEqual(res, {
+        foo: ['bar', 'foo']
+      })
+    });
   });
   
-  it('should send an error if request is not handled', endTest => {
-    ws.sendRequest('test1', {code: 42}).catch(err => {
+  it('should send an error if request is not handled', () => {
+    let errorHandled = false;
+    return ws.sendRequest('test1', {code: 42}).catch(err => {
       if(err.message.match(/No handler for request: test1/)) {
-        endTest();
+        errorHandled = true;
+        return;
       } else {
         throw err;
       }
+    }).then(() => {
+      expect(errorHandled).to.be.true;
     });
   });
-  
 
-  it('should send exceptions through promise handlers', endTest => {
-    ws.sendRequest('test', {code: 42}, function(err, res) {
-      err.should.equal("foo");
-      endTest();
-    });
+  it('should send exceptions through promise handlers', () => {
     wsServer.onRequest('test', function(data) {
       throw "foo";
     });
+    let errorHandled = false;
+    return ws.sendRequest('test', {code: 42}).catch(err => {
+      errorHandled = true;
+      err.should.equal("foo");
+    }).then(() => {
+      expect(errorHandled).to.be.true;
+    });
   });
   
-  it('should send real exceptions through promise handlers', endTest => {
-    ws.sendRequest('test', {code: 42}, function(err, res) {
-      err.name.should.equal('Remote::Error');
-      err.message.should.equal("foo");
-      endTest();
-    });
+  it('should send real exceptions through promise handlers', () => {
+    let errorHandled = false;
     wsServer.onRequest('test', function(data) {
       throw new Error('foo');
     });
+    return ws.sendRequest('test', {code: 42}).catch(err => {
+      errorHandled = true;
+      err.name.should.equal('Remote::Error');
+      err.message.should.equal("foo");
+    }).then(() => {
+      expect(errorHandled).to.be.true;
+    });
   });
   
   
-  it('should send real exceptions through promise handlers with custom exception hook', endTest => {
+  it('should send real exceptions through promise handlers with custom exception hook', () => {
     wsServer.setRemoteErrorHook(err => {
       err.name = 'FooBar';
       return Promise.resolve(err).delay(1);
     });
-  
-    wsServer.sendRequest('test', {code: 42}, function(err, res) {
-      err.name.should.equal('FooBar');
-      err.should.be.instanceof(RemoteError);
-      err.message.should.equal("foo foo foo");
-      endTest();
-    });
-    
+
     ws.onRequest('test', function(data) {
       throw new Error('foo foo foo');
     });
+
+    let errorHandled = false;
+    return wsServer.sendRequest('test', {code: 42}).catch(err => {
+      errorHandled = true;
+      err.name.should.equal('FooBar');
+      err.should.be.instanceof(RemoteError);
+      err.message.should.equal("foo foo foo");
+    }).then(() => {
+      expect(errorHandled).to.be.true;
+    });
   });
-      
+
   it('should not send Timeout after disconnected from server', endTest => {
     ws.setResponseTimeout(20);
-    
+
     let timeout = setTimeout(() => {
       endTest();
     }, 30);
-    
-    ws.sendRequest('test', {code: 42}, function(err, res) {
-      clearTimeout(timeout);
-      if(err) endTest(err);
-    });
+
+    const cleanup = () => clearTimeout(timeout);
+
     setTimeout(() => {
       wsServer.close();
     }, 10);
     wsServer.onRequest('test', function(data) {
       return new Promise((resolve, reject) => {});
     });
-    
+    ws.sendRequest('test', {code: 42}).then(cleanup).catch(endTest);
   });
 
   it('should not send Timeout after disconnected from client', endTest => {
     ws.setResponseTimeout(10);
-    
+
     let timeout = setTimeout(() => {
       endTest();
     }, 15);
-    
-    ws.sendRequest('test', {code: 42}, function(err, res) {
-      clearTimeout(timeout);
-      if(err) endTest(err);
-    });
+
+    const cleanup = () => clearTimeout(timeout);
+
+    ws.sendRequest('test', {code: 42}).then(cleanup).catch(endTest);
     setTimeout(() => {
       ws.close();
     }, 5);
@@ -267,24 +275,33 @@ describe('ExChannel - client/server', function() {
     });
   });
       
-  it('should send Error exceptions through promise handlers', endTest => {
-    ws.sendRequest('test', {code: 42}).then(function(res) {
-      //endTest();
-    }).catch(RemoteError, function(err) {
-      err.should.be.an.instanceOf(Error);
-      err.message.should.equal('error with stacktrace');
-      return Promise.resolve().then(function() {
-        throw err;
-      });
-    }).catch(RemoteError, function(err) {
-      err.stack.should.match(/remoteFunc/);
-      endTest();
-    });
+  it('should send Error exceptions through promise handlers', () => {
+    let errorHandled = false;
+
     wsServer.onRequest('test', function(data) {
       function remoteFunc() {
         throw new Error('error with stacktrace');
       }
       return Promise.resolve().then(remoteFunc);
+    });
+    return ws.sendRequest('test', {code: 42})
+    .catch(function(err) {
+      if(!(err instanceof RemoteError)) {
+        throw err;
+      }
+      err.should.be.an.instanceOf(Error);
+      err.message.should.equal('error with stacktrace');
+      return Promise.resolve().then(function() {
+        throw err;
+      });
+    }).catch(function(err) {
+      if(!(err instanceof RemoteError)) {
+        throw err;
+      }
+      errorHandled = true;
+      err.stack.should.match(/remoteFunc/);
+    }).then(() => {
+      expect(errorHandled).to.be.true;
     });
   });
 
@@ -293,16 +310,22 @@ describe('ExChannel - client/server', function() {
 
     wsServer.onRequest('test1', function(data) {
       return Promise.delay(20).then(function() {
-        if(gotTimeout)
+        if(gotTimeout) {
           endTest();
+        } else {
+          endTest(new Error('Expected to get timeout'));
+        }
         return 'foo';
       });
     });
-    
+
     ws.sendRequest('test1', {code: 42}, {responseTimeout: 10})
     .then(function(res) {
       res.should.equal('foo');
-    }).catch(Promise.TimeoutError, function(err) {
+    }).catch(function(err) {
+      if (!(err instanceof TimeoutError)) {
+        throw err;
+      }
       gotTimeout = true;
       err.message.should.equal('operation timed out');
     });
